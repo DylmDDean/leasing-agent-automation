@@ -11,9 +11,8 @@ from email.mime.text import MIMEText
 from email.utils import formatdate
 from email import encoders
 from google.cloud import vision
-from dotenv import load_dotenv, find_dotenv  # Import find_dotenv
+from dotenv import load_dotenv, find_dotenv  
 
-# Load environment variables
 load_dotenv(find_dotenv(filename='my_env_variables.env'))
 
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'C:/New folder/htdocs/algo/scraping.json'
