@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tenant Approval</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tenant Approval Results</h1>
+
+    <h2>Paystub Results</h2>
+    {% if paystub_results %}
+        {% for result in paystub_results %}
+            {% if 'income' in result %}
+                <p>Income: ${{ result.income }}</p>
+                <p>Decision: {{ result.decision }}</p>
+            {% elif 'error' in result %}
+                
+            {% endif %}
+        {% endfor %}
+    {% else %}
+        <p>No paystub results found.</p>
+    {% endif %}
+
+    <h2>Driver's License Results</h2>
+    {% if id_results %}
+        {% for result in id_results %}
+            {% if 'dln' in result %}
+                <p>DLN: {{ result.dln }}</p>
+                <p>Decision: {{ result.decision }}</p>
+            {% elif 'error' in result %}
+                
+            {% endif %}
+        {% endfor %}
+    {% else %}
+        <p>No driver's license results found.</p>
+    {% endif %}
+</body>
+</html>
+
