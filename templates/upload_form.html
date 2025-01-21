@@ -7,13 +7,62 @@
         body {
             font-family: Arial, sans-serif;
         }
+        .upload-section {
+            margin-bottom: 20px;
+        }
+        .legal-disclaimer {
+            font-size: 12px;
+            margin: 20px 0;
+            max-width: 400px;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
     <h2>Upload Form</h2>
     <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file">
+        <div class="upload-section">
+            <label for="paystub">Upload Paystub:</label>
+            <input type="file" name="paystub" accept=".png,.jpg,.jpeg,.pdf,.txt,.gif" required>
+        </div>
+        
+        <div class="upload-section">
+            <label for="id">Upload Driver's License:</label>
+            <input type="file" name="id" accept=".png,.jpg,.jpeg,.pdf,.txt,.gif" required>
+        </div>
+        
+        <div class="upload-section">
+            <label for="email">Recipient Email:</label>
+            <input type="email" name="email" required>
+        </div>
+        
+        <div class="legal-disclaimer">
+            <b>LEGAL LIABILITY DISCLAIMER:</b><br>
+            By signing below, you acknowledge that the information provided is accurate and true to the best of your knowledge. You agree to release the provider from any liability or legal action arising from the use or misuse of this document.
+        </div>
+
+        <div class="upload-section">
+            <label for="signature">Signature:</label>
+            <input type="text" name="signature" id="signature" required>
+        </div>
+        
+        <input type="hidden" name="sign_date" id="sign_date" value="">
         <input type="submit" value="Upload">
     </form>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            var signDateField = document.getElementById("sign_date");
+
+            function setDate() {
+                var currentDate = new Date().toLocaleDateString();
+                signDateField.value = currentDate;
+                console.log("Sign Date:", currentDate);  // Debugging
+            }
+
+            // Set the date once the form loads
+            setDate();
+        });
+    </script>
 </body>
 </html>
