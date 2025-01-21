@@ -54,10 +54,20 @@ def upload_file():
     paystub = request.files['paystub']
     id_file = request.files['id']
     recipient_email = request.form.get('email')
-    
-    if paystub.filename == '' or id_file.filename == '' or not recipient_email:
-        logging.info('No selected file or email')
-        return render_template('error.html', error_message='No selected file or email')
+    signature = request.form.get('signature')
+    sign_date = request.form.get('sign_date')
+
+    logging.info(f"Paystub filename: {paystub.filename}")
+    logging.info(f"ID filename: {id_file.filename}")
+    logging.info(f"Email: {recipient_email}")
+    logging.info(f"Signature: {signature}")
+    logging.info(f"Date: {sign_date}")
+
+    if paystub.filename == '' or id_file.filename == '' or not recipient_email or not signature or not sign_date:
+        logging.info('No selected file, email, signature, or date')
+        return render_template('error.html', error_message='No selected file, email, signature, or date')
+
+    logging.info(f"Final Date: {sign_date}")  # Debugging
 
     if paystub and allowed_file(paystub.filename) and id_file and allowed_file(id_file.filename):
         paystub_filename = unique_filename(paystub.filename)
@@ -78,9 +88,12 @@ def upload_file():
         logging.info(f'Paystub results: {paystub_results}')  
         logging.info(f'ID results: {id_results}')
 
-        # Generate PDF
+        # Define the image path
+        image_path = r"C:\New folder\htdocs\algo\wh.png"
+        
+        # Generate PDF with signature, date field, and image path
         pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], 'results.pdf')
-        generate_pdf(paystub_results, id_results, pdf_path)
+        generate_pdf_with_signature_field(paystub_results, id_results, pdf_path, signature, sign_date, image_path)
 
         # Sign the PDF
         sign_pdf(pdf_path)
@@ -92,6 +105,7 @@ def upload_file():
     else:
         logging.info('File type not allowed')
         return render_template('error.html', error_message='File type not allowed')
+
 
 def process_image(image_path):
     try:
@@ -142,22 +156,71 @@ def process_image(image_path):
         logging.error(f"Error processing image: {e}")
         return [{'error': 'Error processing image'}]
 
-def generate_pdf(paystub_results, id_results, file_path):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    
-    pdf.cell(200, 10, txt="Approval Results", ln=True, align='C')
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph
+from reportlab.lib.utils import ImageReader
 
+def generate_pdf_with_signature_field(paystub_results, id_results, file_path, signature, sign_date, image_path):
+    c = canvas.Canvas(file_path, pagesize=letter)
+    width, height = letter
+
+    # Center the header
+    c.setFont("Helvetica-Bold", 16)
+    header_text = "Approval Results"
+    text_width = c.stringWidth(header_text, "Helvetica-Bold", 16)
+    c.drawString((width - text_width) / 2.0, height - 40, header_text)
+
+    y = height - 70
+    c.setFont("Helvetica", 12)
+
+    # Add Paystub Results
     for result in paystub_results:
         if 'error' not in result:
-            pdf.cell(200, 10, txt=f"Paystub Result: {result}", ln=True)
-    
+            c.drawString(100, y, f"Paystub Result: {result}")
+            y -= 40  # Double the line spacing
+
+    # Add ID Results
     for result in id_results:
         if 'error' not in result:
-            pdf.cell(200, 10, txt=f"ID Result: {result}", ln=True)
-    
-    pdf.output(file_path)
+            c.drawString(100, y, f"ID Result: {result}")
+            y -= 40  # Double the line spacing
+
+    # Define left padding to align with Paystub and ID Results
+    padding_left = 100
+    padding_right = width - padding_left * 2
+
+    # Add Legal Liability Section with the same alignment
+    styles = getSampleStyleSheet()
+    liability_text = ("LEGAL LIABILITY DISCLAIMER:\n"
+                      "By signing below, you acknowledge that the information provided is accurate and true to the best of your knowledge. "
+                      "You agree to release the provider from any liability or legal action arising from the use or misuse of this document.")
+
+    liability_paragraph = Paragraph(liability_text, styles['Normal'])
+    y -= 20  # Add some space before the disclaimer text
+    liability_paragraph.wrapOn(c, padding_right, y)
+    liability_paragraph.drawOn(c, padding_left, y)
+
+    # Calculate the new y position after adding the liability text
+    y -= (liability_paragraph.height + 10)  # Add some space before the signature and date
+
+    # Add Signature and Date in regular font weight
+    c.setFont("Helvetica", 12)
+    c.drawString(padding_left, y, f"Signature: {signature}")
+    y -= 20  # Double the line spacing
+    c.drawString(padding_left, y, f"Date: {sign_date}")
+
+    # Add the image below the date, aligned with the rest of the content
+    y -= 10 # Add some space before the image
+    image_width = 200
+    image_height = 100
+    image = ImageReader(image_path)
+    c.drawImage(image, padding_left, y - image_height, width=image_width, height=image_height, mask='auto')
+
+    c.save()
+
+    print("PDF generated successfully with the signature field and image.")
 
 import PyPDF2
 from PyPDF2.generic import ByteStringObject, NameObject
@@ -239,6 +302,10 @@ def send_email_with_attachment(to_email, subject, body, file_path):
         server.quit()
         logging.info(f'Email sent to {to_email}')
     except Exception as e:
+        logging.error(f'Failed to send email: {e}')
+
+if __name__ == '__main__':
+    app.run(debug=True)
         logging.error(f'Failed to send email: {e}')
 
 if __name__ == '__main__':
