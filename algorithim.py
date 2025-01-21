@@ -1,4 +1,5 @@
-from flask import Flask, request, redirect, flash, render_template
+from flask import Flask, request, redirect, flash, render_template, send_file
+from fpdf import FPDF
 import os
 import logging
 import re
@@ -12,6 +13,12 @@ from email.utils import formatdate
 from email import encoders
 from google.cloud import vision
 from dotenv import load_dotenv, find_dotenv
+from endesive.pdf import cms
+from datetime import datetime
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
+from cryptography import x509
+import uuid
 
 # Load environment variables
 load_dotenv(find_dotenv(filename='my_env_variables.env'))
@@ -29,6 +36,11 @@ logging.basicConfig(level=logging.INFO)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
+def unique_filename(filename):
+    file_root, file_ext = os.path.splitext(filename)
+    unique_name = f"{file_root}_{uuid.uuid4().hex}{file_ext}"
+    return unique_name
+
 @app.route('/')
 def upload_form():
     return render_template('upload_form.html')
@@ -41,14 +53,15 @@ def upload_file():
 
     paystub = request.files['paystub']
     id_file = request.files['id']
+    recipient_email = request.form.get('email')
     
-    if paystub.filename == '' or id_file.filename == '':
-        logging.info('No selected file')
-        return render_template('error.html', error_message='No selected file')
+    if paystub.filename == '' or id_file.filename == '' or not recipient_email:
+        logging.info('No selected file or email')
+        return render_template('error.html', error_message='No selected file or email')
 
     if paystub and allowed_file(paystub.filename) and id_file and allowed_file(id_file.filename):
-        paystub_filename = paystub.filename
-        id_filename = id_file.filename
+        paystub_filename = unique_filename(paystub.filename)
+        id_filename = unique_filename(id_file.filename)
 
         paystub_path = os.path.join(app.config['UPLOAD_FOLDER'], paystub_filename)
         id_path = os.path.join(app.config['UPLOAD_FOLDER'], id_filename)
@@ -64,6 +77,16 @@ def upload_file():
         
         logging.info(f'Paystub results: {paystub_results}')  
         logging.info(f'ID results: {id_results}')
+
+        # Generate PDF
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], 'results.pdf')
+        generate_pdf(paystub_results, id_results, pdf_path)
+
+        # Sign the PDF
+        sign_pdf(pdf_path)
+
+        # Send PDF via email
+        send_email_with_attachment(recipient_email, 'Approval Results', 'Please find the attached approval results.', pdf_path)
 
         return render_template('approval_results.html', paystub_results=paystub_results, id_results=id_results)
     else:
@@ -119,18 +142,69 @@ def process_image(image_path):
         logging.error(f"Error processing image: {e}")
         return [{'error': 'Error processing image'}]
 
-def generate_qr_code(data, file_path):
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(data)
-    qr.make(fit=True)
+def generate_pdf(paystub_results, id_results, file_path):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    pdf.cell(200, 10, txt="Approval Results", ln=True, align='C')
 
-    img = qr.make_image(fill='black', back_color='white')
-    img.save(file_path)
+    for result in paystub_results:
+        if 'error' not in result:
+            pdf.cell(200, 10, txt=f"Paystub Result: {result}", ln=True)
+    
+    for result in id_results:
+        if 'error' not in result:
+            pdf.cell(200, 10, txt=f"ID Result: {result}", ln=True)
+    
+    pdf.output(file_path)
+
+import PyPDF2
+from PyPDF2.generic import ByteStringObject, NameObject
+
+def sign_pdf(file_path):
+    from cryptography.hazmat.primitives import serialization, hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.hazmat.backends import default_backend
+    from cryptography import x509
+
+    private_key_path = "C:/Program Files (x86)/ASUS/ArmouryDevice/ssl/privatekey.key"
+    certificate_path = "C:/Program Files (x86)/ASUS/ArmouryDevice/ssl/certificate.crt"
+
+    # Load private key
+    with open(private_key_path, 'rb') as f:
+        private_key = serialization.load_pem_private_key(
+            f.read(),
+            password=None,
+            backend=default_backend()
+        )
+
+    # Load certificate
+    with open(certificate_path, 'rb') as f:
+        certificate = x509.load_pem_x509_certificate(f.read(), backend=default_backend())
+
+    pdf_reader = PyPDF2.PdfReader(open(file_path, "rb"))
+    pdf_writer = PyPDF2.PdfWriter()
+
+    for page_num in range(len(pdf_reader.pages)):
+        page = pdf_reader.pages[page_num]
+        pdf_writer.add_page(page)
+
+    # Add signature placeholder (this is a simplified example, for real signing more steps are needed)
+    signature = ByteStringObject(private_key.sign(
+        b"Sample Text to Sign",
+        padding.PKCS1v15(),
+        hashes.SHA256()
+    ))
+    pdf_writer._root_object.update({
+        NameObject("/Contents"): signature
+    })
+
+    with open('signed_document.pdf', 'wb') as f:
+        pdf_writer.write(f)
+
+    logging.info(f'PDF signed and saved to signed_document.pdf')
+
 
 def send_email_with_attachment(to_email, subject, body, file_path):
     from_email = os.getenv("EMAIL_ADDRESS")
@@ -154,7 +228,7 @@ def send_email_with_attachment(to_email, subject, body, file_path):
     part = MIMEBase('application', 'octet-stream')
     part.set_payload(open(file_path, 'rb').read())
     encoders.encode_base64(part)
-    part.add_header('Content-Disposition', 'attachment; filename="qr_code.png"')
+    part.add_header('Content-Disposition', 'attachment; filename="results.pdf"')
     msg.attach(part)
 
     try:
